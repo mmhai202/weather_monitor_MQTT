@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="vi"> <!-- Khai báo loại tài liệu và ngôn ngữ (Tiếng Việt) -->
+<head>
+    <meta charset="UTF-8"> <!-- Định nghĩa mã ký tự sử dụng trong tài liệu là UTF-8 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1"> <!-- Đảm bảo tài liệu hiển thị tốt trên các thiết bị di động -->
+    <title>ESP32 Weather Monitor</title> <!-- Tiêu đề của trang web hiển thị trên tab trình duyệt -->
+    <style>
+        /* CSS để định dạng giao diện người dùng */
+        body { 
+            font-family: Arial, sans-serif; /* Đặt font cho toàn bộ trang */
+            text-align: center; /* Căn giữa nội dung trang */
+            background-color: #f2f2f2; /* Màu nền của trang */
+            color: #333; /* Màu chữ chính */
+        }
+        h1 { color: #c52222; } /* Màu chữ cho tiêu đề chính */
+        h2 { color: #333; } /* Màu chữ cho tiêu đề cấp 2 */
+        h3 { color: #800080; } /* Màu chữ cho tiêu đề cấp 3 */
+        .container { /* Kiểu cho phần chứa nội dung */
+            max-width: 800px; /* Chiều rộng tối đa */
+            margin: 0 auto; /* Căn giữa */
+            padding: 20px; /* Khoảng cách bên trong */
+            background-color: #fff; /* Màu nền của phần chứa */
+            box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1); /* Đổ bóng cho phần chứa */
+            border-radius: 8px; /* Bo góc phần chứa */
+        }
+        .content { /* Kiểu cho nội dung bên trong */
+            display: flex; /* Sử dụng flexbox để sắp xếp */
+            flex-wrap: wrap; /* Cho phép nội dung xuống dòng nếu không đủ chỗ */
+            gap: 20px; /* Khoảng cách giữa các phần tử */
+            justify-content: space-between; /* Căn giữa các phần tử */
+        }
+        .card { /* Kiểu cho các thẻ thông tin */
+            flex: 1 1 45%; /* Chiều rộng thẻ thông tin */
+            padding: 10px; /* Khoảng cách bên trong thẻ */
+            border-radius: 5px; /* Bo góc thẻ */
+            background-color: #bec4be; /* Màu nền cho thẻ thông tin */
+        }
+        .chart-container { /* Kiểu cho vùng chứa biểu đồ */
+            flex: 1 1 45%; /* Chiều rộng của biểu đồ */
+            padding: 10px; /* Khoảng cách bên trong */
+            background-color: #f2f2f2; /* Màu nền cho vùng chứa biểu đồ */
+            border-radius: 5px; /* Bo góc vùng chứa biểu đồ */
+        }
+        canvas { width: 100%; height: auto; } /* Kích thước của biểu đồ */
+        .button-container { /* Kiểu cho vùng chứa nút bấm */
+            display: flex; /* Sử dụng flexbox */
+            justify-content: center; /* Căn giữa các nút */
+            margin-top: 20px; /* Khoảng cách phía trên */
+            gap: 20px; /* Khoảng cách giữa các nút */
+        }
+        .button { /* Kiểu cho nút bấm */
+            padding: 15px; /* Khoảng cách bên trong nút */
+            background-color: #c52222; /* Màu nền của nút */
+            color: #fff; /* Màu chữ của nút */
+            border: none; /* Không có viền cho nút */
+            border-radius: 5px; /* Bo góc nút */
+            cursor: pointer; /* Hiển thị con trỏ khi di chuột qua nút */
+            transition: background-color 0.3s, transform 0.3s; /* Hiệu ứng chuyển tiếp khi thay đổi màu nền và kích thước */
+            width: 150px; /* Chiều rộng cố định cho nút */
+        } 
+        .button:hover { /* Hiệu ứng khi di chuột qua nút */
+            background-color: #b02020; /* Màu nền mới khi di chuột qua */
+            transform: scale(1.05); /* Tăng kích thước nút lên 5% */
+        }
+        .led-button { background-color: #007BFF; } /* Màu nền cho nút điều khiển LED */
+        .led-button:hover { background-color: #0056b3; } /* Màu nền mới khi di chuột qua nút LED */
+        .middle-button { /* Kiểu cho nút ở giữa */
+            display: flex; 
+            flex-direction: column; /* Sắp xếp theo cột */
+            align-items: center; /* Căn giữa theo chiều ngang */
+            justify-content: center; /* Căn giữa theo chiều dọc */
+            width: 150px; /* Chiều rộng của vùng nút */
+        }
+    </style>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script> <!-- Thư viện MQTT để kết nối với broker MQTT -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script> <!-- Thư viện Chart.js để vẽ biểu đồ -->
+    <script>
+        // Khai báo biến cho các biểu đồ và dữ liệu
+        let tempChart, humiChart; // Biểu đồ nhiệt độ và độ ẩm
+        let timeData = []; // Dữ liệu thời gian
+        let apiTempData = []; // Dữ liệu nhiệt độ từ API
+        let apiHumiData = []; // Dữ liệu độ ẩm từ API
+        let dhtTempData = []; // Dữ liệu nhiệt độ từ cảm biến DHT
+        let dhtHumiData = []; // Dữ liệu độ ẩm từ cảm biến DHT
+
+        // Địa chỉ broker MQTT
+        const broker = "wss://broker.hivemq.com:8884/mqtt"; // Kết nối đến broker qua WSS
+        // Các chủ đề MQTT
+        const topicDHTTemp = "mamaha/dhtTemp"; // Chủ đề cho nhiệt độ DHT
+        const topicDHTHumi = "mamaha/dhtHumi"; // Chủ đề cho độ ẩm DHT
+        const topicApiTemp = "mamaha/apiTemp"; // Chủ đề cho nhiệt độ API
+        const topicApiHumi = "mamaha/apiHumi"; // Chủ đề cho độ ẩm API
+        const topicLED = "mamaha/led"; // Chủ đề cho điều khiển LED
+
+        const client = mqtt.connect(broker); // Kết nối đến broker
+
+        // Khi kết nối thành công đến broker
+        client.on("connect", () => {
+            console.log("Đã kết nối tới broker MQTT"); // Hiển thị thông báo kết nối
+            // Đăng ký các chủ đề để nhận dữ liệu
+            client.subscribe([topicDHTTemp, topicDHTHumi, topicApiTemp, topicApiHumi], (err) => {
+                if (err) {
+                    console.error("Đăng ký chủ đề thất bại:", err); // Hiển thị lỗi nếu đăng ký không thành công
+                }
+            });
+        });
+
+        // Khi nhận được tin nhắn từ các chủ đề đã đăng ký
+        client.on("message", (topic, message) => {
+            const status = message.toString(); // Chuyển đổi tin nhắn thành chuỗi
+            const time = new Date().toLocaleTimeString(); // Lấy thời gian hiện tại
+
+            // Cập nhật dữ liệu nhiệt độ từ cảm biến DHT
+            if (topic === topicDHTTemp) {
+                document.getElementById('dhtTemp').innerHTML = `${status} °C`; // Cập nhật nội dung phần tử HTML
+                dhtTempData.push(status); // Thêm dữ liệu mới vào mảng
+                timeData.push(time); // Thêm thời gian vào mảng
+            } else if (topic === topicDHTHumi) {
+                document.getElementById('dhtHumi').innerText = `${status} %`; // Cập nhật độ ẩm
+                dhtHumiData.push(status); // Thêm độ ẩm vào mảng
+            } else if (topic === topicApiTemp) {
+                document.getElementById('apiTemp').innerHTML = `${status} °C`; // Cập nhật nhiệt độ từ API
+                apiTempData.push(status); // Thêm nhiệt độ vào mảng
+            } else if (topic === topicApiHumi) {
+                document.getElementById('apiHumi').innerText = `${status} %`; // Cập nhật độ ẩm từ API
+                apiHumiData.push(status); // Thêm độ ẩm vào mảng
+            }
+
+            // Cập nhật dữ liệu khi có hơn 100 điểm
+            if (timeData.length > 100) { // Nếu mảng thời gian có nhiều hơn 100 điểm
+                timeData.shift(); // Xóa điểm đầu tiên
+                apiTempData.shift(); // Xóa điểm đầu tiên nhiệt độ API
+                apiHumiData.shift(); // Xóa điểm đầu tiên độ ẩm API
+                dhtTempData.shift(); // Xóa điểm đầu tiên nhiệt độ DHT
+                dhtHumiData.shift(); // Xóa điểm đầu tiên độ ẩm DHT
+            }
+
+            // Cập nhật biểu đồ với dữ liệu mới
+            tempChart.update(); 
+            humiChart.update(); 
+        });
+
+        // Hàm tạo biểu đồ
+        function createCharts() {
+            const ctxTemp = document.getElementById('tempChart').getContext('2d'); // Lấy bối cảnh của biểu đồ nhiệt độ
+            const ctxHumi = document.getElementById('humiChart').getContext('2d'); // Lấy bối cảnh của biểu đồ độ ẩm
+
+            // Tạo biểu đồ nhiệt độ
+            tempChart = new Chart(ctxTemp, {
+                type: 'line', // Loại biểu đồ là đường
+                data: {
+                    labels: timeData, // Nhãn cho trục x
+                    datasets: [
+                        {
+                            label: 'API Temp (°C)', // Nhãn cho dataset
+                            data: apiTempData, // Dữ liệu nhiệt độ từ API
+                            borderColor: 'red', // Màu đường
+                            fill: false, // Không điền màu dưới đường
+                            pointRadius: 2 // Kích thước điểm
+                        },
+                        {
+                            label: 'DHT11 Temp (°C)', // Nhãn cho dataset
+                            data: dhtTempData, // Dữ liệu nhiệt độ từ DHT
+                            borderColor: 'purple', // Màu đường
+                            fill: false, // Không điền màu dưới đường
+                            pointRadius: 2 // Kích thước điểm
+                        }
+                    ]
+                },
+                options: { 
+                    responsive: true, // Biểu đồ sẽ tự động điều chỉnh kích thước
+                    animation: false, // Tắt hiệu ứng hoạt hình
+                    scales: { 
+                        x: { display: true }, // Hiển thị trục x
+                        y: { beginAtZero: true } // Trục y bắt đầu từ 0
+                    } 
+                }
+            });
+
+            // Tạo biểu đồ độ ẩm
+            humiChart = new Chart(ctxHumi, {
+                type: 'line', // Loại biểu đồ là đường
+                data: {
+                    labels: timeData, // Nhãn cho trục x
+                    datasets: [
+                        {
+                            label: 'API Humi (%)', // Nhãn cho dataset
+                            data: apiHumiData, // Dữ liệu độ ẩm từ API
+                            borderColor: 'blue', // Màu đường
+                            fill: false, // Không điền màu dưới đường
+                            pointRadius: 2 // Kích thước điểm
+                        },
+                        {
+                            label: 'DHT11 Humi (%)', // Nhãn cho dataset
+                            data: dhtHumiData, // Dữ liệu độ ẩm từ DHT
+                            borderColor: 'green', // Màu đường
+                            fill: false, // Không điền màu dưới đường
+                            pointRadius: 2 // Kích thước điểm
+                        }
+                    ]
+                },
+                options: { 
+                    responsive: true, // Biểu đồ sẽ tự động điều chỉnh kích thước
+                    animation: false, // Tắt hiệu ứng hoạt hình
+                    scales: { 
+                        x: { display: true }, // Hiển thị trục x
+                        y: { beginAtZero: true } // Trục y bắt đầu từ 0
+                    } 
+                }
+            });
+        }
+
+        // Hàm reset biểu đồ
+        function resetCharts() {
+            // Xóa tất cả dữ liệu trong các mảng
+            timeData.length = 0; 
+            apiTempData.length = 0; 
+            apiHumiData.length = 0; 
+            dhtTempData.length = 0; 
+            dhtHumiData.length = 0; 
+            // Cập nhật biểu đồ với dữ liệu mới (trống)
+            tempChart.update(); 
+            humiChart.update(); 
+        }
+
+        // Hàm điều khiển LED
+        function toggleLED() {
+            const ledButton = document.getElementById('ledButton'); // Lấy nút LED
+            // Cập nhật tên nút LED
+            const ledStatus = ledButton.innerText === "LED STATUS: ON" ? "LED STATUS: OFF" : "LED STATUS: ON"; 
+            ledButton.innerText = ledStatus; // Thay đổi nội dung nút
+
+            // Gửi thông điệp tương ứng với trạng thái LED
+            const payload = ledStatus === "LED STATUS: ON" ? "ON" : "OFF"; 
+            client.publish(topicLED, payload); // Gửi thông điệp qua MQTT
+        }
+
+        // Khi trang web được tải xong
+        window.onload = function() {
+            createCharts(); // Tạo các biểu đồ
+        };
+    </script>
+</head>
+<body>
+    <h1>ESP32 Weather Monitor</h1> <!-- Tiêu đề chính của trang -->
+    <div class="container"> <!-- Phần chứa chính -->
+        <div class="content"> <!-- Nội dung bên trong -->
+            <div class="card"> <!-- Thẻ thông tin về thành phố -->
+                <h2>Ha Noi City</h2> <!-- Tiêu đề thành phố -->
+                <h3><strong>Temperature:</strong> <span id="apiTemp">Đang tải...</span></h3> <!-- Nhiệt độ từ API -->
+                <h3><strong>Humidity:</strong> <span id="apiHumi">Đang tải...</span></h3> <!-- Độ ẩm từ API -->
+            </div>
+            <div class="card"> <!-- Thẻ thông tin về cảm biến DHT -->
+                <h2>DHT11 Sensor</h2> <!-- Tiêu đề cảm biến -->
+                <h3><strong>Temperature:</strong> <span id="dhtTemp">Đang tải...</span></h3> <!-- Nhiệt độ từ cảm biến DHT -->
+                <h3><strong>Humidity:</strong> <span id="dhtHumi">Đang tải...</span></h3> <!-- Độ ẩm từ cảm biến DHT -->
+            </div>
+            <div class="chart-container"> <!-- Vùng chứa biểu đồ nhiệt độ -->
+                <canvas id="tempChart"></canvas> <!-- Biểu đồ nhiệt độ -->
+            </div>
+            <div class="chart-container"> <!-- Vùng chứa biểu đồ độ ẩm -->
+                <canvas id="humiChart"></canvas> <!-- Biểu đồ độ ẩm -->
+            </div>
+        </div>
+
+        <div class="button-container"> <!-- Vùng chứa các nút bấm -->
+            <div class="middle-button"> <!-- Nút điều khiển LED -->
+                <button id="ledButton" class="button led-button" onclick="toggleLED()">LED STATUS: OFF</button> <!-- Nút điều khiển LED -->
+            </div>
+            <div class="middle-button"> <!-- Nút reset biểu đồ -->
+                <button class="button" onclick="resetCharts()">Reset</button> <!-- Nút reset biểu đồ -->
+            </div>
+        </div>
+    </div>
+</body>
+</html>
